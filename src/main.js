@@ -142,6 +142,176 @@ if (cluster.isMaster) {
     // 获取固定的用户代理（用于调试）
     const getFixedOrRandom = (arr, fixed = false) => fixed ? arr[0] : randomPick(arr);
 
+    // ====== 纯 API 模式（不使用浏览器） ======
+    async function getTokenPureAPI(privateKey, retries = 0) {
+        if (retries >= maxRetries) return null;
+        
+        const YESCAPTCHA_CLIENT_KEY = process.env.YESCAPTCHA_CLIENT_KEY;
+        const TURNSTILE_SITEKEY = process.env.TURNSTILE_SITEKEY;
+        
+        if (!YESCAPTCHA_CLIENT_KEY || !TURNSTILE_SITEKEY) {
+            console.log(`[W${workerId}] Pure API mode requires YESCAPTCHA_CLIENT_KEY and TURNSTILE_SITEKEY`);
+            return null;
+        }
+        
+        const { ethers } = await import('ethers');
+        const wallet = new ethers.Wallet(privateKey);
+        const address = await wallet.getAddress();
+        console.log(`[W${workerId}] [API] Wallet address: ${address}`);
+        
+        try {
+            // 第一步：使用 yesCaptcha 获取 Turnstile token
+            console.log(`[W${workerId}] [API] Requesting Turnstile token from yesCaptcha...`);
+            
+            const createTaskResp = await fetch('https://api.yescaptcha.com/createTask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clientKey: YESCAPTCHA_CLIENT_KEY,
+                    task: {
+                        type: 'TurnstileTaskProxylessM1',
+                        websiteURL: TARGET_URL,
+                        websiteKey: TURNSTILE_SITEKEY,
+                    }
+                })
+            });
+            
+            const createTaskData = await createTaskResp.json();
+            
+            if (createTaskData.errorId !== 0 || !createTaskData.taskId) {
+                console.log(`[W${workerId}] [API] Failed to create task: ${createTaskData.errorDescription}`);
+                return null;
+            }
+            
+            const taskId = createTaskData.taskId;
+            console.log(`[W${workerId}] [API] Task created: ${taskId}`);
+            
+            // 轮询等待结果
+            let turnstileToken = null;
+            for (let i = 0; i < 60; i++) {
+                await new Promise(r => setTimeout(r, 3000));
+                
+                const getResultResp = await fetch('https://api.yescaptcha.com/getTaskResult', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        clientKey: YESCAPTCHA_CLIENT_KEY,
+                        taskId: taskId
+                    })
+                });
+                
+                const resultData = await getResultResp.json();
+                
+                if (resultData.status === 'ready' && resultData.solution) {
+                    turnstileToken = resultData.solution.token;
+                    console.log(`[W${workerId}] [API] Got Turnstile token (length: ${turnstileToken.length})`);
+                    break;
+                } else if (resultData.status === 'processing') {
+                    if (i % 5 === 0) {
+                        console.log(`[W${workerId}] [API] yesCaptcha processing... (${i * 3}s)`);
+                    }
+                } else {
+                    console.log(`[W${workerId}] [API] yesCaptcha error: ${JSON.stringify(resultData)}`);
+                    break;
+                }
+            }
+            
+            if (!turnstileToken) {
+                console.log(`[W${workerId}] [API] Failed to get Turnstile token`);
+                return null;
+            }
+            
+            // 第二步：调用 Privy init API 获取 nonce
+            const privyCaId = crypto.randomUUID();
+            const userAgent = randomPick(USER_AGENTS);
+            
+            const domain = 'claim.tadle.com';
+            const origin = 'https://claim.tadle.com';
+            const statement = 'By signing, you are proving you own this wallet and logging in. This does not initiate a transaction or cost any fees.';
+            
+            const commonHeaders = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'privy-app-id': PRIVY_APP_ID,
+                'privy-ca-id': privyCaId,
+                'privy-client': PRIVY_CLIENT,
+                'Origin': origin,
+                'Referer': origin + '/',
+                'User-Agent': userAgent,
+            };
+            
+            console.log(`[W${workerId}] [API] Calling SIWE init...`);
+            const initResp = await fetch(PRIVY_INIT_URL, {
+                method: 'POST',
+                headers: commonHeaders,
+                body: JSON.stringify({ 
+                    address,
+                    token: turnstileToken
+                })
+            });
+            
+            const initData = await initResp.json();
+            console.log(`[W${workerId}] [API] Init response status: ${initResp.status}`);
+            
+            if (!initData.nonce) {
+                console.log(`[W${workerId}] [API] Failed to get nonce: ${JSON.stringify(initData)}`);
+                return null;
+            }
+            
+            const nonce = initData.nonce;
+            const issuedAt = new Date().toISOString();
+            console.log(`[W${workerId}] [API] Got nonce: ${nonce.substring(0, 16)}...`);
+            
+            // 第三步：签名 SIWE 消息
+            const message = `${domain} wants you to sign in with your Ethereum account:
+${address}
+
+${statement}
+
+URI: ${origin}
+Version: 1
+Chain ID: 1
+Nonce: ${nonce}
+Issued At: ${issuedAt}
+Resources:
+- https://privy.io`;
+            
+            const signature = await wallet.signMessage(message);
+            console.log(`[W${workerId}] [API] SIWE message signed`);
+            
+            // 第四步：调用 Privy authenticate API
+            console.log(`[W${workerId}] [API] Calling authenticate...`);
+            const authResp = await fetch(PRIVY_AUTH_URL, {
+                method: 'POST',
+                headers: commonHeaders,
+                body: JSON.stringify({
+                    message,
+                    signature,
+                    chainId: 'eip155:1',
+                    walletClientType: 'metamask',
+                    connectorType: 'injected',
+                    mode: 'login-or-sign-up'
+                })
+            });
+            
+            const authData = await authResp.json();
+            console.log(`[W${workerId}] [API] Auth response status: ${authResp.status}`);
+            
+            if (authData.token) {
+                console.log(`[W${workerId}] [API] Got token successfully!`);
+                return authData.token;
+            } else {
+                console.log(`[W${workerId}] [API] Auth failed: ${JSON.stringify(authData)}`);
+                return null;
+            }
+            
+        } catch (err) {
+            console.error(`[W${workerId}] [API] Error:`, err.message);
+            await new Promise(r => setTimeout(r, 2000));
+            return getTokenPureAPI(privateKey, retries + 1);
+        }
+    }
+
     async function getToken(privateKey, retries = 0) {
         if (retries >= maxRetries) return null;
 
@@ -675,11 +845,26 @@ Resources:
         }
     }
 
+    // 根据配置选择模式
+    const usePureAPIMode = process.env.YESCAPTCHA_CLIENT_KEY && process.env.TURNSTILE_SITEKEY;
+    
+    if (usePureAPIMode) {
+        console.log(`[W${workerId}] Using Pure API mode (no browser)`);
+    } else {
+        console.log(`[W${workerId}] Using Browser mode`);
+    }
+
     for (const pk of wallets) {
         console.log(`[W${workerId}] Processing wallet ${pk.substring(0, 8)}...`);
-        const token = await getToken(pk);
+        
+        // 根据配置选择使用哪种模式
+        const token = usePureAPIMode 
+            ? await getTokenPureAPI(pk)
+            : await getToken(pk);
+        
         if (token) {
             await fs.appendFile('outputs/tokens.json', JSON.stringify(token) + ',\n');
+            console.log(`[W${workerId}] Token saved for wallet ${pk.substring(0, 8)}`);
         } else {
             console.log(`[W${workerId}] Failed to get token for wallet ${pk.substring(0, 8)}...`);
             await fs.appendFile('outputs/failed.txt', pk + '\n');
