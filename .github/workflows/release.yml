@@ -6,8 +6,8 @@ on:
       - 'v*'
 
 jobs:
-  release:
-    name: Build and Release
+  build:
+    name: Build executables
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -47,6 +47,39 @@ jobs:
           fi
         shell: bash
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: executable-${{ runner.os }}
+          path: ${{ runner.os == 'Windows' && './dist/tadle.exe' || './dist/tadle' }}
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "::set-output name=VERSION::${GITHUB_REF#refs/tags/v}"
+
+      - name: List files
+        run: ls -la
+
+      - name: Rename files
+        run: |
+          mv ./executable-Windows/tadle.exe ./tadle-windows-x64.exe
+          mv ./executable-Linux/tadle ./tadle-linux-x64
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -58,12 +91,22 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload executable
+      - name: Upload Linux executable
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ runner.os == 'Windows' && './dist/tadle.exe' || './dist/tadle' }}
-          asset_name: ${{ steps.exe_name.outputs.FILENAME }}
+          asset_path: ./tadle-linux-x64
+          asset_name: tadle-${{ steps.get_version.outputs.VERSION }}-linux-x64
+          asset_content_type: application/octet-stream
+
+      - name: Upload Windows executable
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./tadle-windows-x64.exe
+          asset_name: tadle-${{ steps.get_version.outputs.VERSION }}-windows-x64.exe
           asset_content_type: application/octet-stream
