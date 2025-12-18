@@ -5,4 +5,3 @@
 # 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
 
 # 注意：将此文件复制为 wallets.txt 并填入实际的私钥
-# wallets.txt 文件不会被提交到 Git 仓库中

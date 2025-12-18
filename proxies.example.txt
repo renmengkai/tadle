@@ -6,4 +6,3 @@
 # 192.168.1.1:3128:user2:pass2
 
 # 注意：将此文件复制为 proxies.txt 并填入实际的代理信息
-# proxies.txt 文件不会被提交到 Git 仓库中

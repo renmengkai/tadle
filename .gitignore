@@ -10,3 +10,7 @@ proxies.txt
 
 # Environment files
 .env
+
+# IDE files
+.idea
+.vscode
