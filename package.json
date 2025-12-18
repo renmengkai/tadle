@@ -1,12 +1,20 @@
 {
   "name": "tadle",
   "type": "module",
+  "bin": "src/main.js",
+  "pkg": {
+    "targets": ["node18-win-x64", "node18-linux-x64"],
+    "outputPath": "dist"
+  },
   "scripts": {
-    "start": "node src/main.js"
+    "start": "node src/main.js",
+    "build": "npx pkg . --compress GZip"
   },
   "dependencies": {
     "ethers": "^5.7.2",
-    "playwright": "^1.48.0",
     "undici": "^7.16.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
   }
 }
