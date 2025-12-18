@@ -127,7 +127,7 @@ npm run build
 
 构建完成后会在 `dist/` 目录下生成可执行文件：
 - `tadle` - Linux/macOS 可执行文件
-- `tadle.exe` - Windows 可执行文件
+- `tadle.exe` - Windows 可执行文件（在 Windows 系统上构建）
 
 #### 使用打包后的程序
 
@@ -144,16 +144,16 @@ outputs/             # 输出目录（自动创建）
 直接双击运行或命令行执行：
 
 ```bash
-# Windows
-tadle.exe
-
 # Linux/macOS
 ./tadle
+
+# Windows
+tadle.exe
 ```
 
-### 传统的打包方式（不再推荐）
+### GitHub Actions 自动构建
 
-之前的 nexe 打包方式因为预构建二进制文件不可用等问题已经不再推荐使用。
+项目已配置 GitHub Actions，在推送带有 `v` 前缀的标签时会自动构建可执行文件并创建 Release。
 
 ### 注意事项
 

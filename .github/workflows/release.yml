@@ -14,7 +14,6 @@ jobs:
     strategy:
       matrix:
         node-version: [22.x]
-        os: [ubuntu-latest, windows-latest]
         
     steps:
       - name: Checkout code
@@ -31,24 +30,11 @@ jobs:
 
       - name: Build SEA executable
         run: |
-          npm run build:sea:prepare
-          node sea-inject-simple.js ${{ matrix.os }}
+          npm run build
 
       - name: Get version from tag
         id: get_version
         run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
-
-      - name: Rename executables for release
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          mv dist/tadle-linux tadle-${{ steps.get_version.outputs.VERSION }}-linux-x64
-        shell: bash
-
-      - name: Rename executables for release
-        if: matrix.os == 'windows-latest'
-        run: |
-          ren dist\tadle-win.exe tadle-${{ steps.get_version.outputs.VERSION }}-win-x64.exe
-        shell: cmd
 
       - name: Create Release
         id: create_release
@@ -62,23 +48,11 @@ jobs:
           prerelease: false
 
       - name: Upload Linux executable
-        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./tadle-${{ steps.get_version.outputs.VERSION }}-linux-x64
+          asset_path: ./dist/tadle
           asset_name: tadle-${{ steps.get_version.outputs.VERSION }}-linux-x64
-          asset_content_type: application/octet-stream
-
-      - name: Upload Windows executable
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./tadle-${{ steps.get_version.outputs.VERSION }}-win-x64.exe
-          asset_name: tadle-${{ steps.get_version.outputs.VERSION }}-win-x64.exe
           asset_content_type: application/octet-stream
