@@ -24,14 +24,17 @@ copyFileSync(nodePath, outputFile);
 
 console.log('Injecting blob into executable...');
 try {
-  execSync(
-    `npx postject ${outputFile} NODE_SEA_BLOB dist/tadle.blob ` +
-    '--sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 ' +
-    '--macho-segment-name NODE_SEA',
-    {
-      stdio: 'inherit'
-    }
-  );
+  let postjectCmd = `npx postject ${outputFile} NODE_SEA_BLOB dist/tadle.blob ` +
+    '--sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
+    
+  // 添加 macOS 特定参数
+  if (platform() !== 'darwin') {
+    postjectCmd += ' --macho-segment-name NODE_SEA';
+  }
+  
+  execSync(postjectCmd, {
+    stdio: 'inherit'
+  });
   console.log(`Successfully created executable: ${outputFile}`);
 } catch (error) {
   console.error('Failed to inject blob:', error.message);

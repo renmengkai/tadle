@@ -28,7 +28,7 @@ async function loadEnvFile() {
 
 // 将主逻辑包装在异步函数中以避免顶层 await 问题
 async function main() {
-  if (cluster.isMaster) {
+  if (cluster.isMaster || cluster.isPrimary) {
       // ====== 主进程 ======
       // 加载.env文件
       await loadEnvFile();

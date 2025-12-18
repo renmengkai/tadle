@@ -8,11 +8,12 @@ on:
 jobs:
   release:
     name: Build and Release
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node-version: [22.x]
         
     steps:
@@ -34,7 +35,17 @@ jobs:
 
       - name: Get version from tag
         id: get_version
-        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+        run: echo "::set-output name=VERSION::${GITHUB_REF#refs/tags/v}"
+
+      - name: Set executable name
+        id: exe_name
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "::set-output name=FILENAME::tadle-${{ steps.get_version.outputs.VERSION }}-windows-x64.exe"
+          else
+            echo "::set-output name=FILENAME::tadle-${{ steps.get_version.outputs.VERSION }}-linux-x64"
+          fi
+        shell: bash
 
       - name: Create Release
         id: create_release
@@ -47,12 +58,12 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload Linux executable
+      - name: Upload executable
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./dist/tadle
-          asset_name: tadle-${{ steps.get_version.outputs.VERSION }}-linux-x64
+          asset_path: ${{ runner.os == 'Windows' && './dist/tadle.exe' || './dist/tadle' }}
+          asset_name: ${{ steps.exe_name.outputs.FILENAME }}
           asset_content_type: application/octet-stream
