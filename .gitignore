@@ -16,3 +16,4 @@ proxies.txt
 .vscode
 
 outputs/
+dist/

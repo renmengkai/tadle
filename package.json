@@ -2,19 +2,16 @@
   "name": "tadle",
   "type": "module",
   "bin": "src/main.js",
-  "pkg": {
-    "targets": ["node18-win-x64", "node18-linux-x64"],
-    "outputPath": "dist"
-  },
   "scripts": {
     "start": "node src/main.js",
-    "build": "npx pkg . --compress GZip"
+    "build": "nexe src/main.js --target windows-x64-14.15.3 --output dist/tadle-win.exe && nexe src/main.js --target linux-x64-14.15.3 --output dist/tadle-linux",
+    "release": "npm run build && gh release create v$(node -p \"require('./package.json').version\") dist/* --generate-notes"
   },
   "dependencies": {
     "ethers": "^5.7.2",
     "undici": "^7.16.0"
   },
   "devDependencies": {
-    "pkg": "^5.8.1"
+    "nexe": "^5.0.0-beta.4"
   }
 }
