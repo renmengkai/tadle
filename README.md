@@ -1,6 +1,6 @@
 # Tadle Airdrop Claim
 
-自动化领取 Tadle 空投的工具。
+自动化领取 Tadle 空投的工具。 https://claim.tadle.com/ 批量查询并开启box
 
 ## 功能
 
