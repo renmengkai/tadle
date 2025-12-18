@@ -1,0 +1,12 @@
+# Dependencies
+/node_modules
+
+# Wallets and proxies files
+wallets.txt
+proxies.txt
+
+# Logs
+*.log
+
+# Environment files
+.env

@@ -1,0 +1,9 @@
+# Proxies 示例文件
+# 请在此文件中每行放置一个代理地址
+# 示例格式：
+# ip:port:username:password
+# 127.0.0.1:8080:user1:pass1
+# 192.168.1.1:3128:user2:pass2
+
+# 注意：将此文件复制为 proxies.txt 并填入实际的代理信息
+# proxies.txt 文件不会被提交到 Git 仓库中
