@@ -1,0 +1,5 @@
+{
+  "main": "dist/bundle.cjs",
+  "output": "dist/tadle.blob",
+  "disableExperimentalSEAWarning": true
+}

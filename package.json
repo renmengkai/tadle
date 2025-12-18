@@ -4,7 +4,10 @@
   "bin": "src/main.js",
   "scripts": {
     "start": "node src/main.js",
-    "build": "nexe src/main.js --target windows-x64-14.15.3 --output dist/tadle-win.exe && nexe src/main.js --target linux-x64-14.15.3 --output dist/tadle-linux",
+    "prebuild": "node build-for-sea.js",
+    "build": "npm run build:sea:prepare && npm run build:sea:inject",
+    "build:sea:prepare": "node --experimental-sea-config sea-config.json",
+    "build:sea:inject": "node sea-inject.js",
     "release": "npm run build && gh release create v$(node -p \"require('./package.json').version\") dist/* --generate-notes"
   },
   "dependencies": {
@@ -12,6 +15,7 @@
     "undici": "^7.16.0"
   },
   "devDependencies": {
-    "nexe": "^5.0.0-beta.4"
+    "esbuild": "^0.24.0",
+    "postject": "^1.0.0-alpha.6"
   }
 }

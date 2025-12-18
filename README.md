@@ -107,28 +107,34 @@ npm start
 
 ## 打包成可执行文件
 
-### 安装打包工具
+### 使用 Node.js 22+ 的 SEA (Single Executable Applications)
+
+本项目现在支持使用 Node.js 22+ 的官方 SEA 功能来创建可执行文件。
+
+#### 构建可执行文件
+
+确保你正在使用 Node.js 22+ 版本：
 
 ```bash
-npm install
+node --version  # 应该显示 v22.x.x
 ```
 
-### 执行打包
+执行构建命令：
 
 ```bash
 npm run build
 ```
 
-打包完成后在 `dist/` 目录生成：
-- `tadle-win.exe` - Windows 可执行文件
-- `tadle-linux` - Linux 可执行文件
+构建完成后会在 `dist/` 目录下生成可执行文件：
+- `tadle` - Linux/macOS 可执行文件
+- `tadle.exe` - Windows 可执行文件
 
-### 使用打包后的程序
+#### 使用打包后的程序
 
 将以下文件放在 exe 同一目录下：
 
 ```
-tadle-win.exe
+tadle 或 tadle.exe
 .env                 # 配置文件
 wallets.txt          # 钱包私钥
 proxies.txt          # 代理列表
@@ -139,14 +145,19 @@ outputs/             # 输出目录（自动创建）
 
 ```bash
 # Windows
-tadle-win.exe
+tadle.exe
 
-# Linux
-./tadle-linux
+# Linux/macOS
+./tadle
 ```
+
+### 传统的打包方式（不再推荐）
+
+之前的 nexe 打包方式因为预构建二进制文件不可用等问题已经不再推荐使用。
 
 ### 注意事项
 
-1. `.env` 文件必须与 exe 放在同一目录
+1. `.env` 文件必须与可执行文件放在同一目录
 2. 程序会从当前工作目录读取配置文件
-3. 打包需要 Node.js 18+ 环境
+3. 打包需要 Node.js 22+ 环境
+4. SEA 是 Node.js 官方支持的方式，比第三方工具更稳定可靠
