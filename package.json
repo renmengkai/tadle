@@ -11,7 +11,7 @@
     "release": "npm run build && gh release create v$(node -p \"require('./package.json').version\") dist/* --generate-notes"
   },
   "dependencies": {
-    "ethers": "^5.7.2",
+    "ethers": "^5.8.0",
     "undici": "^7.16.0"
   },
   "devDependencies": {

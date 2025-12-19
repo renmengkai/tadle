@@ -2,6 +2,7 @@
 import cluster from 'cluster';
 import os from 'os';
 import fs from 'fs/promises';
+import { createInterface } from 'readline';
 import { randomUUID } from 'crypto';
 
 // 简单的.env文件解析函数
@@ -26,17 +27,153 @@ async function loadEnvFile() {
     }
 }
 
+// 检查是否需要初始化
+async function checkAndInitialize() {
+    try {
+        // 检查必要的文件是否存在
+        await fs.access('wallets.txt');
+        await fs.access('proxies.txt');
+        await fs.access('.env');
+        // 如果都存在，不需要初始化
+        return false;
+    } catch (err) {
+        // 至少有一个文件不存在，需要询问用户是否初始化
+        return true;
+    }
+}
+
+// 初始化项目文件
+async function initializeProject() {
+    console.log('检测到这是首次运行，需要初始化配置文件。');
+    console.log('');
+    console.log('本程序需要以下配置文件才能正常运行：');
+    console.log('1. wallets.txt - 存放待处理的钱包私钥，每行一个');
+    console.log('2. proxies.txt - 存放代理服务器信息，每行一个');
+    console.log('3. .env - 环境变量配置文件，包括API密钥等配置');
+    console.log('');
+    
+    const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    const question = (query) => new Promise(resolve => rl.question(query, resolve));
+    
+    try {
+        const answer = await question('是否在当前目录初始化配置文件？(y/N): ');
+        rl.close();
+        
+        if (answer.toLowerCase() !== 'y') {
+            console.log('用户取消初始化，程序退出。');
+            process.exit(0);
+        }
+
+        // 创建 wallets.txt 文件
+        try {
+            await fs.access('wallets.txt');
+            console.log('wallets.txt 文件已存在，跳过创建');
+        } catch (err) {
+            const walletContent = `# Wallets 文件
+# 请在此文件中每行放置一个钱包私钥
+# 示例格式：
+# 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+# 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+
+`;
+            await fs.writeFile('wallets.txt', walletContent);
+            console.log('已创建 wallets.txt 文件');
+        }
+
+        // 创建 proxies.txt 文件
+        try {
+            await fs.access('proxies.txt');
+            console.log('proxies.txt 文件已存在，跳过创建');
+        } catch (err) {
+            const proxyContent = `# Proxies 文件
+# 请在此文件中每行放置一个代理地址
+# 示例格式：
+# http://username:password@ip:port
+# socks5://username:password@ip:port
+# http://ip:port （无认证信息的代理）
+
+`;
+            await fs.writeFile('proxies.txt', proxyContent);
+            console.log('已创建 proxies.txt 文件');
+        }
+
+        // 创建 .env 文件
+        try {
+            await fs.access('.env');
+            console.log('.env 文件已存在，跳过创建');
+        } catch (err) {
+            const envContent = `# 代理设置 (true/false)
+USE_PROXY=true
+
+# 重试次数
+MAX_RETRIES=3
+
+# ====== 日志配置 ======
+# 日志级别: error, warn, info, debug
+# error - 只输出错误
+# warn  - 错误 + 警告
+# info  - 错误 + 警告 + 关键信息（默认）
+# debug - 所有日志（包含调试信息）
+LOG_LEVEL=info
+
+# ====== 并发配置 ======
+# Worker数量（多进程），默认等于代理数量，最大建议50
+CONCURRENCY=50
+
+# 每个Worker内部并发数
+# 建议1-3，太高可能触发频率限制
+BATCH_CONCURRENCY=1
+
+# ====== 验证码服务配置（必填，无需修改） ======
+# Cloudflare Turnstile sitekey
+TURNSTILE_SITEKEY=0x4AAAAAAAM8ceq5KhP1uJBt
+
+# yesCaptcha API Key (用于解决 Turnstile 验证码)
+# 获取地址: https://yescaptcha.com
+YESCAPTCHA_CLIENT_KEY=your_yescaptcha_client_key_here
+
+`;
+            await fs.writeFile('.env', envContent);
+            console.log('已创建 .env 文件');
+        }
+
+        console.log('');
+        console.log('初始化完成！请按以下步骤配置：');
+        console.log('1. 编辑 wallets.txt 文件，添加您的钱包私钥（每行一个）');
+        console.log('2. 编辑 proxies.txt 文件，添加您的代理服务器信息（每行一个）');
+        console.log('3. 编辑 .env 文件，配置 API 密钥等相关参数');
+        console.log('');
+        console.log('配置完成后，再次运行程序即可开始执行任务。');
+        console.log('');
+
+        process.exit(0);
+    } catch (err) {
+        rl.close();
+        console.error('初始化过程中发生错误:', err.message);
+        process.exit(1);
+    }
+}
+
 // 将主逻辑包装在异步函数中以避免顶层 await 问题
 async function main() {
+  // 检查是否需要初始化
+  if (await checkAndInitialize()) {
+      await initializeProject();
+  }
+  
   if (cluster.isMaster || cluster.isPrimary) {
       // ====== 主进程 ======
       // 加载.env文件
       await loadEnvFile();
       
-      const wallets = (await fs.readFile('wallets.txt', 'utf8')).trim().split(/\r?\n/).filter(x => x);
+      const wallets = (await fs.readFile('wallets.txt', 'utf8')).trim().split(/\r?\n/).map(x => x.trim()).filter(x => x && !x.startsWith('#'));
       let proxyLines = [];
       try {
-          proxyLines = (await fs.readFile('proxies.txt', 'utf8')).trim().split(/\r?\n/).filter(x => x);
+          proxyLines = (await fs.readFile('proxies.txt', 'utf8')).trim().split(/\r?\n/).map(x => x.trim()).filter(x => x && !x.startsWith('#'));
       } catch (err) {
           console.log('No proxies.txt file found or empty, running without proxies');
       }
@@ -47,14 +184,17 @@ async function main() {
       // 解析代理行：http://user:pass@ip:port -> { server, username, password }
       let proxies = [];
       if (useProxy) {
-          proxies = proxyLines.map(line => {
-              const url = new URL(line);
-              return {
-                  server: `${url.protocol}//${url.hostname}:${url.port}`,
-                  username: url.username,
-                  password: url.password,
-              };
-          });
+          proxies = proxyLines
+              .map(line => line.trim()) // 去除前后空格
+              .filter(line => line.length > 0 && !line.startsWith('#')) // 过滤掉空行和注释行
+              .map(line => {
+                  const url = new URL(line);
+                  return {
+                      server: `${url.protocol}//${url.hostname}:${url.port}`,
+                      username: url.username,
+                      password: url.password,
+                  };
+              });
       } else {
           console.log('Proxy disabled by environment variable');
       }
@@ -293,6 +433,17 @@ async function main() {
                   return { boxes: [], allOpened: false, error: 'JSON parse error: ' + parseErr.message };
               }
               
+              // 检查是否是"Not eligible"响应
+              if (!data.status && data.message === "Not eligible") {
+                  wlog.info(`Wallet is not eligible for airdrop`);
+                  return { 
+                      boxes: [], 
+                      allOpened: true, 
+                      notEligible: true,
+                      error: 'Not eligible'
+                  };
+              }
+              
               if (!data.status || !data.data || !data.data.boxes) {
                   wlog.warn(`Invalid airdrop response: ${JSON.stringify(data)}`);
                   if (retries < maxRetries) {
@@ -325,6 +476,7 @@ async function main() {
                   boxes: unopenedBoxes, 
                   allBoxes,
                   allOpened,
+                  notEligible: false,
                   // 汇总信息
                   summary: {
                       totalBoxes,
@@ -397,8 +549,25 @@ async function main() {
           // 步骤1: 获取airdrop信息
           let airdropInfo = await getAirdropInfo(walletAddress, token, wlog);
           
+          // 检查是否为"Not eligible"情况
+          if (airdropInfo.notEligible) {
+              wlog.info(`Wallet is not eligible for airdrop`);
+              results.push({
+                  wallet: walletAddress,
+                  status: 'NOT_ELIGIBLE',
+                  allOpened: true,
+                  totalBoxes: 0,
+                  totalAmount: 0,
+                  totalTtAmount: 0,
+                  totalTfeAmount: 0,
+                  openedCount: 0,
+                  timestamp: new Date().toISOString()
+              });
+              return results;
+          }
+          
           // 检查是否获取失败
-          if (airdropInfo.error) {
+          if (airdropInfo.error && !airdropInfo.notEligible) {
               wlog.error(`Failed to get airdrop info: ${airdropInfo.error}`);
               results.push({
                   wallet: walletAddress,
