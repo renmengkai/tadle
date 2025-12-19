@@ -272,7 +272,7 @@ async function main() {
       let exited = 0;
       let workCompleted = 0;
       let finalizeDone = false;
-      
+
       // 监听来自worker的消息
       for (const id in cluster.workers) {
           cluster.workers[id].on('message', (msg) => {
@@ -284,7 +284,7 @@ async function main() {
                   }
               }
           });
-          
+
           cluster.workers[id].on('exit', async () => {
               exited++;
               // 检查是否所有worker都已退出
@@ -293,32 +293,32 @@ async function main() {
               }
           });
       }
-      
+
       // 整理CSV文件的函数
       async function finalizeCSVFiles() {
           // 避免重复执行
           if (finalizeDone) return;
           finalizeDone = true;
-          
+
           // 所有子进程结束后，整理CSV文件
           console.log('✅ All workers done. Finalizing CSV file...');
           // 这里需要重新加载环境来访问finalizeCSV函数，但我们在主进程中重新实现类似逻辑
-          
+
           // 简化版本的finalizeCSV在主进程中执行
           try {
               const tempFilePath = resultFilePath + '.tmp';
               // 检查临时文件是否存在
               try {
                   await fs.access(tempFilePath);
-                  
+
                   // 读取所有临时数据
                   const tempContent = await fs.readFile(tempFilePath, 'utf8');
                   const lines = tempContent.trim().split('\n').filter(line => line.trim());
-                  
+
                   if (lines.length > 0) {
                       // 解析所有结果数据
                       const allResults = lines.map(line => JSON.parse(line));
-                      
+
                       // 获取所有唯一的资产类型
                       const allAssetTypes = new Set();
                       allResults.forEach(r => {
@@ -328,21 +328,21 @@ async function main() {
                               });
                           }
                       });
-                      
+
                       // 生成表头
                       const headerFields = ['wallet', 'status', 'allOpened', 'totalBoxes'];
-                      
+
                       // 为每种资产类型添加三列，列名包含资产类型
                       [...allAssetTypes].sort().forEach(assetType => {
                           headerFields.push(
                               `totalAmount(${assetType})`,
-                              `totalTtAmount(${assetType})`, 
+                              `totalTtAmount(${assetType})`,
                               `totalTfeAmount(${assetType})`
                           );
                       });
-                      
+
                       headerFields.push('openedCount', 'error', 'timestamp');
-                      
+
                       // 生成数据行
                       const rows = allResults.map(r => {
                           const fields = [
@@ -351,7 +351,7 @@ async function main() {
                               r.allOpened !== undefined ? r.allOpened : '',
                               r.totalBoxes !== undefined ? r.totalBoxes : ''
                           ];
-                          
+
                           // 添加每种资产类型的统计数据
                           [...allAssetTypes].sort().forEach(assetType => {
                               const assetStat = (r.summary && r.summary.assetStats && r.summary.assetStats[assetType]) || {};
@@ -361,16 +361,16 @@ async function main() {
                                   assetStat.totalTfeAmount !== undefined ? assetStat.totalTfeAmount.toFixed(4) : '0.0000'
                               );
                           });
-                          
+
                           fields.push(
                               r.openedCount !== undefined ? r.openedCount : '',
                               (r.error || '').replace(/,/g, ';').replace(/\n/g, ' '),
                               r.timestamp || ''
                           );
-                          
+
                           return fields.join(',');
                       });
-                      
+
                       // 写入最终的CSV文件
                       await fs.writeFile(resultFilePath, headerFields.join(',') + '\n' + rows.join('\n') + '\n');
                       console.log(`✅ Finalized CSV file with ${allResults.length} records`);
@@ -378,7 +378,7 @@ async function main() {
                       // 如果没有数据，创建一个空的CSV文件
                       await fs.writeFile(resultFilePath, 'wallet,status,allOpened,totalBoxes,openedCount,error,timestamp\n');
                   }
-                  
+
                   // 删除临时文件
                   await fs.unlink(tempFilePath).catch(() => {});
               } catch (err) {
@@ -388,7 +388,7 @@ async function main() {
           } catch (err) {
               console.error(`Error finalizing CSV file: ${err.message}`);
           }
-          
+
           console.log('✅ All done.');
       }
   } else {
@@ -587,17 +587,17 @@ async function main() {
                           openedCount: 0
                       };
                   }
-                  
+
                   assetStats[asset].totalAmount += parseFloat(box.amount || 0);
                   assetStats[asset].totalTtAmount += parseFloat(box.tt_amount || 0);
                   assetStats[asset].totalTfeAmount += parseFloat(box.tfe_amount || 0);
                   assetStats[asset].totalCount++;
-                  
+
                   if (box.is_opened === 1) {
                       assetStats[asset].openedCount++;
                   }
               });
-              
+
               // 计算总体统计
               const totalBoxes = allBoxes.length;
               let totalAmount = 0;
@@ -611,7 +611,7 @@ async function main() {
                   totalTfeAmount += asset.totalTfeAmount;
                   openedCount += asset.openedCount;
               });
-              
+
               wlog.info(`Boxes: ${totalBoxes} total, ${unopenedBoxes.length} unopened, Total Amount: ${totalAmount.toFixed(2)}`);
               
               // 检查是否所有boxes都已打开
@@ -803,23 +803,23 @@ async function main() {
           await fs.appendFile(resultFilePath + '.tmp', tempData);
           log.debug(`Saved ${results.length} records to temp file`);
       }
-      
+
       // 在主进程结束时整理并生成最终的CSV文件
       async function finalizeCSV() {
           try {
               // 读取所有临时数据
               const tempContent = await fs.readFile(resultFilePath + '.tmp', 'utf8');
               const lines = tempContent.trim().split('\n').filter(line => line.trim());
-              
+
               if (lines.length === 0) {
                   // 如果没有数据，创建一个空的CSV文件
                   await fs.writeFile(resultFilePath, 'wallet,status,allOpened,totalBoxes,openedCount,error,timestamp\n');
                   return;
               }
-              
+
               // 解析所有结果数据
               const allResults = lines.map(line => JSON.parse(line));
-              
+
               // 获取所有唯一的资产类型
               const allAssetTypes = new Set();
               allResults.forEach(r => {
@@ -829,21 +829,21 @@ async function main() {
                       });
                   }
               });
-              
+
               // 生成表头
               const headerFields = ['wallet', 'status', 'allOpened', 'totalBoxes'];
-              
+
               // 为每种资产类型添加三列，列名包含资产类型
               [...allAssetTypes].sort().forEach(assetType => {
                   headerFields.push(
                       `totalAmount(${assetType})`,
-                      `totalTtAmount(${assetType})`, 
+                      `totalTtAmount(${assetType})`,
                       `totalTfeAmount(${assetType})`
                   );
               });
-              
+
               headerFields.push('openedCount', 'error', 'timestamp');
-              
+
               // 生成数据行
               const rows = allResults.map(r => {
                   const fields = [
@@ -852,7 +852,7 @@ async function main() {
                       r.allOpened !== undefined ? r.allOpened : '',
                       r.totalBoxes !== undefined ? r.totalBoxes : ''
                   ];
-                  
+
                   // 添加每种资产类型的统计数据
                   [...allAssetTypes].sort().forEach(assetType => {
                       const assetStat = (r.summary && r.summary.assetStats && r.summary.assetStats[assetType]) || {};
@@ -862,20 +862,20 @@ async function main() {
                           assetStat.totalTfeAmount !== undefined ? assetStat.totalTfeAmount.toFixed(4) : '0.0000'
                       );
                   });
-                  
+
                   fields.push(
                       r.openedCount !== undefined ? r.openedCount : '',
                       (r.error || '').replace(/,/g, ';').replace(/\n/g, ' '),
                       r.timestamp || ''
                   );
-                  
+
                   return fields.join(',');
               });
-              
+
               // 写入最终的CSV文件
               await fs.writeFile(resultFilePath, headerFields.join(',') + '\n' + rows.join('\n') + '\n');
               log.debug(`Finalized CSV file with ${allResults.length} records`);
-              
+
               // 删除临时文件
               await fs.unlink(resultFilePath + '.tmp').catch(() => {});
           } catch (err) {
@@ -894,7 +894,7 @@ async function main() {
       async function getToken(privateKey, retries = 0) {
           // 使用环境变量中的最大重试次数
           const maxRetries = parseInt(process.env.MAX_RETRIES) || 3;
-          
+
           if (retries >= maxRetries) {
               log.error(`[API] Max retries reached for getting token`);
               return null;
@@ -934,7 +934,7 @@ async function main() {
               
               if (createTaskData.errorId !== 0 || !createTaskData.taskId) {
                   log.error(`[API] Failed to create task: ${createTaskData.errorDescription}`);
-                  
+
                   // 不再对errorId === 1立即放弃重试，而是遵循最大重试次数配置
                   // 只有在达到最大重试次数时才放弃
                   if (retries < maxRetries) {
@@ -976,7 +976,7 @@ async function main() {
                       }
                   } else {
                       log.error(`[API] yesCaptcha error: ${JSON.stringify(resultData)}`);
-                      
+
                       // 不再对errorId === 1立即放弃重试，而是遵循最大重试次数配置
                       // 只有在达到最大重试次数时才放弃
                       if (retries < maxRetries) {
@@ -1023,7 +1023,7 @@ async function main() {
               };
               
               log.debug(`[API] Calling SIWE init...`);
-              const initResp = await fetch(PRIVY_INIT_URL, {
+              const initResp = await proxyFetch(PRIVY_INIT_URL, {
                   method: 'POST',
                   headers: commonHeaders,
                   body: JSON.stringify({ 
@@ -1071,7 +1071,7 @@ Resources:
               
               // 第四步：调用 Privy authenticate API
               log.debug(`[API] Calling authenticate...`);
-              const authResp = await fetch(PRIVY_AUTH_URL, {
+              const authResp = await proxyFetch(PRIVY_AUTH_URL, {
                   method: 'POST',
                   headers: commonHeaders,
                   body: JSON.stringify({
@@ -1203,7 +1203,7 @@ Resources:
       if (process.send) {
           process.send({ type: 'workCompleted' });
       }
-      
+
       process.exit(0);
   }
 }
