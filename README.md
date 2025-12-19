@@ -1,37 +1,84 @@
-# Tadle Airdrop Claim
+# Tadle Airdrop Claimer
 
-自动化领取 Tadle 空投的工具。 https://claim.tadle.com/ 批量查询并开启box
+<p align="center">
+  <img src="https://img.shields.io/badge/Node.js-22+-brightgreen" alt="Node.js Version">
+  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License">
+</p>
 
-## 功能
+<p align="center">
+  自动化领取 Tadle 空投的工具 - https://claim.tadle.com/
+  <br>
+  批量查询并开启空投盲盒
+</p>
 
-- 自动获取 Privy 认证 Token
-- 批量领取空投 Boxes
-- 支持多钱包并发处理
-- 支持代理
-- 详细日志记录
+## 🌟 功能特性
 
-## 安装
+- 🔐 自动获取 Privy 认证 Token
+- 🎁 批量领取空投盲盒 (Boxes)
+- 🚀 多钱包并发处理，提高效率
+- 🌐 全面支持代理，避免频率限制
+- 📝 详细的日志记录和结果报告
+- 💻 支持打包为独立可执行文件
+
+## 📋 目录
+
+- [快速开始](#快速开始)
+- [安装](#安装)
+- [配置说明](#配置说明)
+- [文件准备](#文件准备)
+- [运行程序](#运行程序)
+- [输出文件](#输出文件)
+- [日志说明](#日志说明)
+- [注意事项](#注意事项)
+- [打包为可执行文件](#打包为可执行文件)
+
+## 🚀 快速开始
+
+```bash
+# 安装依赖
+npm install
+
+# 复制并编辑配置文件
+cp .env.example .env
+# 编辑 .env 文件，填写 yesCaptcha API Key 等配置
+
+# 准备钱包和代理文件
+# 编辑 wallets.txt 和 proxies.txt
+
+# 运行程序
+npm start
+```
+
+## 🛠 安装
+
+确保您的系统已安装 Node.js 22+ 版本：
+
+```bash
+node --version  # 应该显示 v22.x.x 或更高版本
+```
+
+安装项目依赖：
 
 ```bash
 npm install
 ```
 
-## 配置
+## ⚙️ 配置说明
 
-复制 `.env.example` 为 `.env` 并填写配置：
+### 复制配置文件
 
 ```bash
 cp .env.example .env
 ```
 
-### 必填配置
+### 必填配置项
 
 | 配置项 | 说明 |
 |--------|------|
-| `YESCAPTCHA_CLIENT_KEY` | yesCaptcha API Key，用于解决 Turnstile 验证码 |
-| `TURNSTILE_SITEKEY` | Cloudflare Turnstile sitekey （tadle 无需修改）|
+| `YESCAPTCHA_CLIENT_KEY` | [yesCaptcha](https://yescaptcha.com) API Key，用于解决 Turnstile 验证码 |
+| `TURNSTILE_SITEKEY` | Cloudflare Turnstile sitekey（Tadle 默认值，无需修改）|
 
-### 可选配置
+### 可选配置项
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
@@ -41,82 +88,104 @@ cp .env.example .env
 | `CONCURRENCY` | 50 | Worker 进程数 |
 | `BATCH_CONCURRENCY` | 2 | 每个 Worker 内部并发数 |
 
-## 文件准备
+## 📁 文件准备
 
-### wallets.txt
+### wallets.txt - 钱包私钥文件
 
-每行一个私钥：
+每行放置一个钱包私钥：
 
-```
-0x1234...
-0x5678...
-```
-
-### proxies.txt
-
-每行一个代理地址（支持认证）：
-
-```
-http://user:pass@ip:port
-http://ip:port
+```txt
+0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
 ```
 
-## 运行
+### proxies.txt - 代理配置文件
+
+每行放置一个代理地址（支持多种格式）：
+
+```txt
+# 带用户名密码认证的代理
+http://username:password@proxy-ip:port
+
+# 不需要认证的代理
+http://proxy-ip:port
+
+# SOCKS5 代理
+socks5://username:password@proxy-ip:port
+```
+
+## ▶️ 运行程序
+
+开发模式运行：
 
 ```bash
 npm start
 ```
 
-## 输出文件
+或者直接使用 Node.js 运行：
 
-程序运行后在 `outputs/` 目录生成：
+```bash
+node src/main.js
+```
 
-- `result_YYYYMMDDHHMM.csv` - 领取结果
-- `tadle_YYYYMMDDHHMM.log` - 运行日志
+## 📊 输出文件
 
-### CSV 字段说明
+程序运行后将在 `outputs/` 目录生成以下文件：
+
+- `result_YYYYMMDDHHMM.csv` - 领取结果统计
+- `tadle_YYYYMMDDHHMM.log` - 详细运行日志
+
+### CSV 结果字段说明
 
 | 字段 | 说明 |
 |------|------|
-| wallet | 钱包地址 |
-| status | 状态 (SUCCESS/NO_UNOPENED_BOXES/PARTIAL/FAILED) |
-| allOpened | 是否全部已开启 |
-| totalBoxes | Boxes 总数 |
-| totalAmount | Amount 总和 |
-| totalTtAmount | TT Amount 总和 |
-| totalTfeAmount | TFE Amount 总和 |
-| openedCount | 已开启数量 |
-| error | 错误信息 |
-| timestamp | 时间戳 |
+| `wallet` | 钱包地址 |
+| `status` | 状态 (SUCCESS/NO_UNOPENED_BOXES/PARTIAL/FAILED/NOT_ELIGIBLE/TOKEN_FAILED/ERROR) |
+| `allOpened` | 是否全部盲盒已开启 |
+| `totalBoxes` | 盲盒总数 |
+| `totalAmount` | Amount 总和 |
+| `totalTtAmount` | TT Amount 总和 |
+| `totalTfeAmount` | TFE Amount 总和 |
+| `openedCount` | 已开启盲盒数量 |
+| `error` | 错误信息 |
+| `timestamp` | 时间戳 |
 
-## 日志格式
+## 📋 日志说明
 
-日志包含钱包后8位标识，方便定位：
+日志包含进程和钱包标识，方便定位问题：
 
-```
+```log
 [W0][917FDb91] Processing wallet...
 [W0][917FDb91] Boxes: 5 total, 2 unopened, Amount: 2090000.00
 [W0][917FDb91] ✅ Completed
 ```
 
-## 注意事项
+日志级别可通过 `.env` 中的 `LOG_LEVEL` 配置：
+- `error`: 仅输出错误信息
+- `warn`: 错误 + 警告信息
+- `info`: 错误 + 警告 + 关键信息（默认）
+- `debug`: 所有详细调试信息
 
-1. 需要配置有效的 yesCaptcha API Key
-2. 建议使用代理避免 IP 限制
-3. 并发数过高可能触发频率限制
+## ⚠️ 注意事项
 
-## 打包成可执行文件
+1. **必须配置有效的 yesCaptcha API Key** 才能正常使用
+2. **强烈建议使用高质量代理** 避免触发频率限制
+3. **合理设置并发参数**，过高可能导致 API 限制
+4. **保护好私钥文件**，不要泄露给他人
+5. 程序会自动跳过不符合空投条件的钱包
+
+## 📦 打包为可执行文件
 
 ### 使用 Node.js 22+ 的 SEA (Single Executable Applications)
 
-本项目现在支持使用 Node.js 22+ 的官方 SEA 功能来创建可执行文件。
+本项目支持使用 Node.js 22+ 的官方 SEA 功能创建可执行文件。
 
 #### 构建可执行文件
 
-确保你正在使用 Node.js 22+ 版本：
+确保使用 Node.js 22+ 版本：
 
 ```bash
-node --version  # 应该显示 v22.x.x
+node --version  # 应该显示 v22.x.x 或更高版本
 ```
 
 执行构建命令：
@@ -134,11 +203,11 @@ npm run build
 将以下文件放在 exe 同一目录下：
 
 ```
-tadle 或 tadle.exe
-.env                 # 配置文件
-wallets.txt          # 钱包私钥
-proxies.txt          # 代理列表
-outputs/             # 输出目录（自动创建）
+tadle 或 tadle.exe     # 可执行文件
+.env                   # 配置文件
+wallets.txt            # 钱包私钥文件
+proxies.txt            # 代理列表文件
+outputs/               # 输出目录（自动创建）
 ```
 
 直接双击运行或命令行执行：
@@ -161,3 +230,7 @@ tadle.exe
 2. 程序会从当前工作目录读取配置文件
 3. 打包需要 Node.js 22+ 环境
 4. SEA 是 Node.js 官方支持的方式，比第三方工具更稳定可靠
+
+## 📄 许可证
+
+本项目采用 MIT 许可证，详情请参见 [LICENSE](LICENSE) 文件。
