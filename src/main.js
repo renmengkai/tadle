@@ -780,7 +780,7 @@ async function main() {
               };
               
               log.debug(`[API] Calling SIWE init...`);
-              const initResp = await fetch(PRIVY_INIT_URL, {
+              const initResp = await proxyFetch(PRIVY_INIT_URL, {
                   method: 'POST',
                   headers: commonHeaders,
                   body: JSON.stringify({ 
@@ -820,7 +820,7 @@ Resources:
               
               // 第四步：调用 Privy authenticate API
               log.debug(`[API] Calling authenticate...`);
-              const authResp = await fetch(PRIVY_AUTH_URL, {
+              const authResp = await proxyFetch(PRIVY_AUTH_URL, {
                   method: 'POST',
                   headers: commonHeaders,
                   body: JSON.stringify({
