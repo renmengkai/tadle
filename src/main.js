@@ -666,8 +666,12 @@ async function main() {
               ].join(',');
           }).join('\n');
           
-          await fs.appendFile(resultFilePath, rows + '\n');
-          log.debug(`Saved ${results.length} records to result file`);
+          try {
+              await fs.appendFile(resultFilePath, rows + '\n');
+              log.debug(`Saved ${results.length} records to result file`);
+          } catch (err) {
+              log.error(`Failed to save results to CSV: ${err.message}`);
+          }
       }
 
       // ====== 纯API模式获取Token ======
@@ -878,10 +882,26 @@ Resources:
                   
               } else {
                   wlog.error(`Failed to get token`);
+                  // 记录失败的结果
+                  const errorResult = [{
+                      wallet: walletAddress,
+                      status: 'TOKEN_FAILED',
+                      error: 'Failed to get authentication token',
+                      timestamp: new Date().toISOString()
+                  }];
+                  await saveResultsToCSV(errorResult);
                   return { success: false, wallet: walletAddress };
               }
           } catch (err) {
               wlog.error(`Error: ${err.message}`);
+              // 记录异常的结果
+              const errorResult = [{
+                  wallet: walletAddress,
+                  status: 'ERROR',
+                  error: err.message,
+                  timestamp: new Date().toISOString()
+              }];
+              await saveResultsToCSV(errorResult);
               return { success: false, wallet: walletAddress, error: err.message };
           }
       }
