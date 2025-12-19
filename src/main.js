@@ -272,6 +272,7 @@ async function main() {
       let exited = 0;
       let workCompleted = 0;
       let finalizeDone = false;
+      const workerCount = Object.keys(cluster.workers).length;
 
       // 监听来自worker的消息
       for (const id in cluster.workers) {
@@ -279,7 +280,7 @@ async function main() {
               if (msg.type === 'workCompleted') {
                   workCompleted++;
                   // 检查是否所有工作都已完成
-                  if (workCompleted === Object.keys(cluster.workers).length) {
+                  if (workCompleted === workerCount) {
                       finalizeCSVFiles();
                   }
               }
@@ -288,7 +289,7 @@ async function main() {
           cluster.workers[id].on('exit', async () => {
               exited++;
               // 检查是否所有worker都已退出
-              if (exited === Object.keys(cluster.workers).length) {
+              if (exited === workerCount) {
                   finalizeCSVFiles();
               }
           });
@@ -302,8 +303,7 @@ async function main() {
 
           // 所有子进程结束后，整理CSV文件
           console.log('✅ All workers done. Finalizing CSV file...');
-          // 这里需要重新加载环境来访问finalizeCSV函数，但我们在主进程中重新实现类似逻辑
-
+          
           // 简化版本的finalizeCSV在主进程中执行
           try {
               const tempFilePath = resultFilePath + '.tmp';
@@ -317,7 +317,14 @@ async function main() {
 
                   if (lines.length > 0) {
                       // 解析所有结果数据
-                      const allResults = lines.map(line => JSON.parse(line));
+                      const allResults = lines.map(line => {
+                          try {
+                              return JSON.parse(line);
+                          } catch (e) {
+                              console.error(`Error parsing line: ${line}`, e);
+                              return null;
+                          }
+                      }).filter(r => r !== null);
 
                       // 获取所有唯一的资产类型
                       const allAssetTypes = new Set();
@@ -387,6 +394,7 @@ async function main() {
               }
           } catch (err) {
               console.error(`Error finalizing CSV file: ${err.message}`);
+              console.error(err.stack);
           }
 
           console.log('✅ All done.');
@@ -798,10 +806,26 @@ async function main() {
       async function saveResultsToCSV(results) {
           if (results.length === 0 || !resultFilePath) return;
           
-          // 直接将结果以JSON格式保存到临时文件中
+          // 使用文件锁机制避免并发写入冲突
           const tempData = results.map(r => JSON.stringify(r)).join('\n') + '\n';
-          await fs.appendFile(resultFilePath + '.tmp', tempData);
-          log.debug(`Saved ${results.length} records to temp file`);
+          const tempFilePath = resultFilePath + '.tmp';
+          
+          // 循环重试写入，避免并发冲突
+          for (let i = 0; i < 5; i++) {
+              try {
+                  // 使用追加模式写入文件
+                  await fs.appendFile(tempFilePath, tempData, { flag: 'a' });
+                  log.debug(`Saved ${results.length} records to temp file`);
+                  break;
+              } catch (err) {
+                  if (i === 4) {
+                      log.error(`Failed to save results to temp file after 5 attempts: ${err.message}`);
+                  } else {
+                      // 等待一段时间后重试
+                      await new Promise(r => setTimeout(r, 100 * (i + 1)));
+                  }
+              }
+          }
       }
 
       // 在主进程结束时整理并生成最终的CSV文件
