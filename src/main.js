@@ -221,9 +221,9 @@ async function main() {
       // 初始化日志文件
       await fs.writeFile(logFilePath, `=== Tadle Log Started at ${now.toISOString()} ===\n`);
       
-      // 初始化结果CSV文件（写入表头）
-      const csvHeaders = 'wallet,status,allOpened,totalBoxes,totalAmount,totalTtAmount,totalTfeAmount,openedCount,error,timestamp\n';
-      await fs.writeFile(resultFilePath, csvHeaders);
+      // 确保结果文件和临时文件都不存在
+      await fs.unlink(resultFilePath).catch(() => {});
+      await fs.unlink(resultFilePath + '.tmp').catch(() => {});
       
       console.log(`日志文件: ${logFilePath}`);
       console.log(`结果文件: ${resultFilePath}`);
@@ -270,13 +270,126 @@ async function main() {
       }
 
       let exited = 0;
+      let workCompleted = 0;
+      let finalizeDone = false;
+      
+      // 监听来自worker的消息
       for (const id in cluster.workers) {
-          cluster.workers[id].on('exit', async () => {
-              exited++;
-              if (exited === Object.keys(cluster.workers).length) {
-                  console.log('✅ All done.');
+          cluster.workers[id].on('message', (msg) => {
+              if (msg.type === 'workCompleted') {
+                  workCompleted++;
+                  // 检查是否所有工作都已完成
+                  if (workCompleted === Object.keys(cluster.workers).length) {
+                      finalizeCSVFiles();
+                  }
               }
           });
+          
+          cluster.workers[id].on('exit', async () => {
+              exited++;
+              // 检查是否所有worker都已退出
+              if (exited === Object.keys(cluster.workers).length) {
+                  finalizeCSVFiles();
+              }
+          });
+      }
+      
+      // 整理CSV文件的函数
+      async function finalizeCSVFiles() {
+          // 避免重复执行
+          if (finalizeDone) return;
+          finalizeDone = true;
+          
+          // 所有子进程结束后，整理CSV文件
+          console.log('✅ All workers done. Finalizing CSV file...');
+          // 这里需要重新加载环境来访问finalizeCSV函数，但我们在主进程中重新实现类似逻辑
+          
+          // 简化版本的finalizeCSV在主进程中执行
+          try {
+              const tempFilePath = resultFilePath + '.tmp';
+              // 检查临时文件是否存在
+              try {
+                  await fs.access(tempFilePath);
+                  
+                  // 读取所有临时数据
+                  const tempContent = await fs.readFile(tempFilePath, 'utf8');
+                  const lines = tempContent.trim().split('\n').filter(line => line.trim());
+                  
+                  if (lines.length > 0) {
+                      // 解析所有结果数据
+                      const allResults = lines.map(line => JSON.parse(line));
+                      
+                      // 获取所有唯一的资产类型
+                      const allAssetTypes = new Set();
+                      allResults.forEach(r => {
+                          if (r.summary && r.summary.assetStats) {
+                              Object.keys(r.summary.assetStats).forEach(assetType => {
+                                  allAssetTypes.add(assetType);
+                              });
+                          }
+                      });
+                      
+                      // 生成表头
+                      const headerFields = ['wallet', 'status', 'allOpened', 'totalBoxes'];
+                      
+                      // 为每种资产类型添加三列，列名包含资产类型
+                      [...allAssetTypes].sort().forEach(assetType => {
+                          headerFields.push(
+                              `totalAmount(${assetType})`,
+                              `totalTtAmount(${assetType})`, 
+                              `totalTfeAmount(${assetType})`
+                          );
+                      });
+                      
+                      headerFields.push('openedCount', 'error', 'timestamp');
+                      
+                      // 生成数据行
+                      const rows = allResults.map(r => {
+                          const fields = [
+                              r.wallet || '',
+                              r.status || '',
+                              r.allOpened !== undefined ? r.allOpened : '',
+                              r.totalBoxes !== undefined ? r.totalBoxes : ''
+                          ];
+                          
+                          // 添加每种资产类型的统计数据
+                          [...allAssetTypes].sort().forEach(assetType => {
+                              const assetStat = (r.summary && r.summary.assetStats && r.summary.assetStats[assetType]) || {};
+                              fields.push(
+                                  assetStat.totalAmount !== undefined ? assetStat.totalAmount.toFixed(4) : '0.0000',
+                                  assetStat.totalTtAmount !== undefined ? assetStat.totalTtAmount.toFixed(4) : '0.0000',
+                                  assetStat.totalTfeAmount !== undefined ? assetStat.totalTfeAmount.toFixed(4) : '0.0000'
+                              );
+                          });
+                          
+                          fields.push(
+                              r.openedCount !== undefined ? r.openedCount : '',
+                              (r.error || '').replace(/,/g, ';').replace(/\n/g, ' '),
+                              r.timestamp || ''
+                          );
+                          
+                          return fields.join(',');
+                      });
+                      
+                      // 写入最终的CSV文件
+                      await fs.writeFile(resultFilePath, headerFields.join(',') + '\n' + rows.join('\n') + '\n');
+                      console.log(`✅ Finalized CSV file with ${allResults.length} records`);
+                  } else {
+                      // 如果没有数据，创建一个空的CSV文件
+                      await fs.writeFile(resultFilePath, 'wallet,status,allOpened,totalBoxes,openedCount,error,timestamp\n');
+                  }
+                  
+                  // 删除临时文件
+                  await fs.unlink(tempFilePath).catch(() => {});
+              } catch (err) {
+                  // 临时文件不存在，创建一个空的CSV文件
+                  await fs.writeFile(resultFilePath, 'wallet,status,allOpened,totalBoxes,openedCount,error,timestamp\n');
+              }
+          } catch (err) {
+              console.error(`Error finalizing CSV file: ${err.message}`);
+          }
+          
+          console.log('✅ All done.');
       }
   } else {
       // ====== 子进程 ======
@@ -461,13 +574,45 @@ async function main() {
                   .filter(box => box.is_opened === 0)
                   .sort((a, b) => a.weeks - b.weeks);
               
-              // 汇总统计信息
-              const totalBoxes = allBoxes.length;
-              const totalAmount = allBoxes.reduce((sum, box) => sum + parseFloat(box.amount || 0), 0);
-              const totalTtAmount = allBoxes.reduce((sum, box) => sum + parseFloat(box.tt_amount || 0), 0);
-              const totalTfeAmount = allBoxes.reduce((sum, box) => sum + parseFloat(box.tfe_amount || 0), 0);
+              // 按资产类型分别统计
+              const assetStats = {};
+              allBoxes.forEach(box => {
+                  const asset = box.asset;
+                  if (!assetStats[asset]) {
+                      assetStats[asset] = {
+                          totalAmount: 0,
+                          totalTtAmount: 0,
+                          totalTfeAmount: 0,
+                          totalCount: 0,
+                          openedCount: 0
+                      };
+                  }
+                  
+                  assetStats[asset].totalAmount += parseFloat(box.amount || 0);
+                  assetStats[asset].totalTtAmount += parseFloat(box.tt_amount || 0);
+                  assetStats[asset].totalTfeAmount += parseFloat(box.tfe_amount || 0);
+                  assetStats[asset].totalCount++;
+                  
+                  if (box.is_opened === 1) {
+                      assetStats[asset].openedCount++;
+                  }
+              });
               
-              wlog.info(`Boxes: ${totalBoxes} total, ${unopenedBoxes.length} unopened, Amount: ${totalAmount.toFixed(2)}`);
+              // 计算总体统计
+              const totalBoxes = allBoxes.length;
+              let totalAmount = 0;
+              let totalTtAmount = 0;
+              let totalTfeAmount = 0;
+              let openedCount = 0;
+              
+              Object.values(assetStats).forEach(asset => {
+                  totalAmount += asset.totalAmount;
+                  totalTtAmount += asset.totalTtAmount;
+                  totalTfeAmount += asset.totalTfeAmount;
+                  openedCount += asset.openedCount;
+              });
+              
+              wlog.info(`Boxes: ${totalBoxes} total, ${unopenedBoxes.length} unopened, Total Amount: ${totalAmount.toFixed(2)}`);
               
               // 检查是否所有boxes都已打开
               const allOpened = allBoxes.length > 0 && unopenedBoxes.length === 0;
@@ -483,8 +628,9 @@ async function main() {
                       totalAmount,
                       totalTtAmount,
                       totalTfeAmount,
-                      openedCount: allBoxes.filter(b => b.is_opened === 1).length,
-                      unopenedCount: unopenedBoxes.length
+                      openedCount,
+                      unopenedCount: unopenedBoxes.length,
+                      assetStats // 添加按资产类型统计的信息
                   },
                   baseDate: data.data.base_date,
                   currentDate: data.data.current_date,
@@ -592,6 +738,7 @@ async function main() {
                   totalTtAmount: summary.totalTtAmount.toFixed(4),
                   totalTfeAmount: summary.totalTfeAmount.toFixed(4),
                   openedCount: summary.openedCount,
+                  summary: summary, // 包含assetStats信息
                   timestamp: new Date().toISOString()
               });
               return results;
@@ -639,35 +786,101 @@ async function main() {
               totalTtAmount: verifySummary.totalTtAmount.toFixed(4),
               totalTfeAmount: verifySummary.totalTfeAmount.toFixed(4),
               openedCount: verifySummary.openedCount,
+              summary: verifySummary, // 包含assetStats信息
               timestamp: new Date().toISOString()
           });
           
           return results;
       }
       
-      // 将结果保存到CSV文件
+      // 将结果保存到CSV文件 (临时版本，仅追加数据)
       const resultFilePath = process.env.RESULT_FILE_PATH;
       async function saveResultsToCSV(results) {
           if (results.length === 0 || !resultFilePath) return;
           
-          // 构建CSV行
-          const rows = results.map(r => {
-              return [
-                  r.wallet || '',
-                  r.status || '',
-                  r.allOpened !== undefined ? r.allOpened : '',
-                  r.totalBoxes !== undefined ? r.totalBoxes : '',
-                  r.totalAmount !== undefined ? r.totalAmount : '',
-                  r.totalTtAmount !== undefined ? r.totalTtAmount : '',
-                  r.totalTfeAmount !== undefined ? r.totalTfeAmount : '',
-                  r.openedCount !== undefined ? r.openedCount : '',
-                  (r.error || '').replace(/,/g, ';').replace(/\n/g, ' '),
-                  r.timestamp || ''
-              ].join(',');
-          }).join('\n');
-          
-          await fs.appendFile(resultFilePath, rows + '\n');
-          log.debug(`Saved ${results.length} records to result file`);
+          // 直接将结果以JSON格式保存到临时文件中
+          const tempData = results.map(r => JSON.stringify(r)).join('\n') + '\n';
+          await fs.appendFile(resultFilePath + '.tmp', tempData);
+          log.debug(`Saved ${results.length} records to temp file`);
+      }
+      
+      // 在主进程结束时整理并生成最终的CSV文件
+      async function finalizeCSV() {
+          try {
+              // 读取所有临时数据
+              const tempContent = await fs.readFile(resultFilePath + '.tmp', 'utf8');
+              const lines = tempContent.trim().split('\n').filter(line => line.trim());
+              
+              if (lines.length === 0) {
+                  // 如果没有数据，创建一个空的CSV文件
+                  await fs.writeFile(resultFilePath, 'wallet,status,allOpened,totalBoxes,openedCount,error,timestamp\n');
+                  return;
+              }
+              
+              // 解析所有结果数据
+              const allResults = lines.map(line => JSON.parse(line));
+              
+              // 获取所有唯一的资产类型
+              const allAssetTypes = new Set();
+              allResults.forEach(r => {
+                  if (r.summary && r.summary.assetStats) {
+                      Object.keys(r.summary.assetStats).forEach(assetType => {
+                          allAssetTypes.add(assetType);
+                      });
+                  }
+              });
+              
+              // 生成表头
+              const headerFields = ['wallet', 'status', 'allOpened', 'totalBoxes'];
+              
+              // 为每种资产类型添加三列，列名包含资产类型
+              [...allAssetTypes].sort().forEach(assetType => {
+                  headerFields.push(
+                      `totalAmount(${assetType})`,
+                      `totalTtAmount(${assetType})`, 
+                      `totalTfeAmount(${assetType})`
+                  );
+              });
+              
+              headerFields.push('openedCount', 'error', 'timestamp');
+              
+              // 生成数据行
+              const rows = allResults.map(r => {
+                  const fields = [
+                      r.wallet || '',
+                      r.status || '',
+                      r.allOpened !== undefined ? r.allOpened : '',
+                      r.totalBoxes !== undefined ? r.totalBoxes : ''
+                  ];
+                  
+                  // 添加每种资产类型的统计数据
+                  [...allAssetTypes].sort().forEach(assetType => {
+                      const assetStat = (r.summary && r.summary.assetStats && r.summary.assetStats[assetType]) || {};
+                      fields.push(
+                          assetStat.totalAmount !== undefined ? assetStat.totalAmount.toFixed(4) : '0.0000',
+                          assetStat.totalTtAmount !== undefined ? assetStat.totalTtAmount.toFixed(4) : '0.0000',
+                          assetStat.totalTfeAmount !== undefined ? assetStat.totalTfeAmount.toFixed(4) : '0.0000'
+                      );
+                  });
+                  
+                  fields.push(
+                      r.openedCount !== undefined ? r.openedCount : '',
+                      (r.error || '').replace(/,/g, ';').replace(/\n/g, ' '),
+                      r.timestamp || ''
+                  );
+                  
+                  return fields.join(',');
+              });
+              
+              // 写入最终的CSV文件
+              await fs.writeFile(resultFilePath, headerFields.join(',') + '\n' + rows.join('\n') + '\n');
+              log.debug(`Finalized CSV file with ${allResults.length} records`);
+              
+              // 删除临时文件
+              await fs.unlink(resultFilePath + '.tmp').catch(() => {});
+          } catch (err) {
+              log.error(`Error finalizing CSV file: ${err.message}`);
+          }
       }
 
       // ====== 纯API模式获取Token ======
@@ -679,7 +892,13 @@ async function main() {
       ];
       
       async function getToken(privateKey, retries = 0) {
-          if (retries >= maxRetries) return null;
+          // 使用环境变量中的最大重试次数
+          const maxRetries = parseInt(process.env.MAX_RETRIES) || 3;
+          
+          if (retries >= maxRetries) {
+              log.error(`[API] Max retries reached for getting token`);
+              return null;
+          }
           
           const YESCAPTCHA_CLIENT_KEY = process.env.YESCAPTCHA_CLIENT_KEY;
           const TURNSTILE_SITEKEY = process.env.TURNSTILE_SITEKEY;
@@ -696,7 +915,7 @@ async function main() {
           
           try {
               // 第一步：使用 yesCaptcha 获取 Turnstile token
-              log.info(`[API] Requesting Turnstile token...`);
+              log.info(`[API] Requesting Turnstile token... (attempt ${retries + 1}/${maxRetries})`);
               
               const createTaskResp = await fetch('https://api.yescaptcha.com/createTask', {
                   method: 'POST',
@@ -715,7 +934,17 @@ async function main() {
               
               if (createTaskData.errorId !== 0 || !createTaskData.taskId) {
                   log.error(`[API] Failed to create task: ${createTaskData.errorDescription}`);
-                  return null;
+                  
+                  // 不再对errorId === 1立即放弃重试，而是遵循最大重试次数配置
+                  // 只有在达到最大重试次数时才放弃
+                  if (retries < maxRetries) {
+                      log.warn(`[API] Retrying to create task... (attempt ${retries + 2}/${maxRetries})`);
+                      await new Promise(r => setTimeout(r, 2000));
+                      return getToken(privateKey, retries + 1);
+                  } else {
+                      log.error(`[API] Max retries reached for creating task`);
+                      return null;
+                  }
               }
               
               const taskId = createTaskData.taskId;
@@ -747,13 +976,31 @@ async function main() {
                       }
                   } else {
                       log.error(`[API] yesCaptcha error: ${JSON.stringify(resultData)}`);
-                      break;
+                      
+                      // 不再对errorId === 1立即放弃重试，而是遵循最大重试次数配置
+                      // 只有在达到最大重试次数时才放弃
+                      if (retries < maxRetries) {
+                          log.warn(`[API] Retrying to get captcha result... (attempt ${retries + 2}/${maxRetries})`);
+                          await new Promise(r => setTimeout(r, 2000));
+                          return getToken(privateKey, retries + 1);
+                      } else {
+                          log.error(`[API] Max retries reached for getting captcha result`);
+                          return null;
+                      }
                   }
               }
               
               if (!turnstileToken) {
                   log.error(`[API] Failed to get Turnstile token`);
-                  return null;
+                  // 增加重试机制
+                  if (retries < maxRetries) {
+                      log.warn(`[API] Retrying to get token... (attempt ${retries + 2}/${maxRetries})`);
+                      await new Promise(r => setTimeout(r, 2000));
+                      return getToken(privateKey, retries + 1);
+                  } else {
+                      log.error(`[API] Max retries reached for getting Turnstile token`);
+                      return null;
+                  }
               }
               
               // 第二步：调用 Privy init API 获取 nonce
@@ -790,7 +1037,15 @@ async function main() {
               
               if (!initData.nonce) {
                   log.error(`[API] Failed to get nonce: ${JSON.stringify(initData)}`);
-                  return null;
+                  // 增加重试机制
+                  if (retries < maxRetries) {
+                      log.warn(`[API] Retrying to get nonce... (attempt ${retries + 2}/${maxRetries})`);
+                      await new Promise(r => setTimeout(r, 2000));
+                      return getToken(privateKey, retries + 1);
+                  } else {
+                      log.error(`[API] Max retries reached for getting nonce`);
+                      return null;
+                  }
               }
               
               const nonce = initData.nonce;
@@ -837,13 +1092,28 @@ Resources:
                   return authData.token;
               } else {
                   log.error(`[API] Auth failed: ${JSON.stringify(authData)}`);
-                  return null;
+                  // 增加重试机制
+                  if (retries < maxRetries) {
+                      log.warn(`[API] Retrying authentication... (attempt ${retries + 2}/${maxRetries})`);
+                      await new Promise(r => setTimeout(r, 2000));
+                      return getToken(privateKey, retries + 1);
+                  } else {
+                      log.error(`[API] Max retries reached for authentication`);
+                      return null;
+                  }
               }
               
           } catch (err) {
               log.error(`[API] Error: ${err.message}`);
-              await new Promise(r => setTimeout(r, 2000));
-              return getToken(privateKey, retries + 1);
+              // 增加重试机制
+              if (retries < maxRetries) {
+                  log.warn(`[API] Retrying after error... (attempt ${retries + 2}/${maxRetries})`);
+                  await new Promise(r => setTimeout(r, 2000));
+                  return getToken(privateKey, retries + 1);
+              } else {
+                  log.error(`[API] Max retries reached after error`);
+                  return null;
+              }
           }
       }
 
@@ -871,17 +1141,33 @@ Resources:
                   wlog.debug(`Starting business process...`);
                   const businessResults = await processWalletBusiness(walletAddress, token, wlog);
                   
-                  // 保存结果到CSV
+                  // 保存结果到临时文件
                   await saveResultsToCSV(businessResults);
                   wlog.info(`✅ Completed`);
                   return { success: true, wallet: walletAddress };
                   
               } else {
                   wlog.error(`Failed to get token`);
+                  // 即使获取token失败也要记录到临时文件
+                  const failResults = [{
+                      wallet: walletAddress,
+                      status: 'FAILED_TOKEN',
+                      error: 'Failed to get authentication token',
+                      timestamp: new Date().toISOString()
+                  }];
+                  await saveResultsToCSV(failResults);
                   return { success: false, wallet: walletAddress };
               }
           } catch (err) {
               wlog.error(`Error: ${err.message}`);
+              // 发生异常时也记录到临时文件
+              const errorResults = [{
+                  wallet: walletAddress,
+                  status: 'ERROR',
+                  error: err.message,
+                  timestamp: new Date().toISOString()
+              }];
+              await saveResultsToCSV(errorResults);
               return { success: false, wallet: walletAddress, error: err.message };
           }
       }
@@ -913,6 +1199,11 @@ Resources:
           }
       }
 
+      // 通知主进程进行文件整理工作
+      if (process.send) {
+          process.send({ type: 'workCompleted' });
+      }
+      
       process.exit(0);
   }
 }
